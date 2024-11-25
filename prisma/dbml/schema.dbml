@@ -1,0 +1,133 @@
+//// ------------------------------------------------------
+//// THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+//// ------------------------------------------------------
+
+Table User {
+  id String [pk]
+  email String [unique, not null]
+  password String [not null]
+  firstName String
+  lastName String
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [default: `now()`, not null]
+  balances Balance [not null]
+  transactions Transaction [not null]
+  resetPasswordTokens ResetPasswordToken [not null]
+}
+
+Table ResetPasswordToken {
+  id Int [pk, increment]
+  token String [unique, not null]
+  expiresAt DateTime [not null]
+  userId String [not null]
+  user User [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table Balance {
+  id String [pk]
+  userId String [not null]
+  value Float [not null]
+  currency Currency [not null, default: 'USD']
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [default: `now()`, not null]
+  user User [not null]
+}
+
+Table Transaction {
+  id String [pk]
+  userId String [not null]
+  status TransactionStatus [not null]
+  type TransactionType [not null]
+  amount Float [not null]
+  currency Currency [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [default: `now()`, not null]
+  user User [not null]
+}
+
+Table Price {
+  id String [pk]
+  value Float [not null]
+  currency Currency [not null]
+  updatedAt DateTime [default: `now()`, not null]
+}
+
+Table Cryptocurrency {
+  id Int [pk, increment]
+  name String [not null]
+  symbol String [not null]
+  slug String [not null]
+  cmc_rank Int
+  num_market_pairs Int
+  circulating_supply Float
+  total_supply Float
+  max_supply Float
+  infinite_supply Boolean
+  last_updated DateTime
+  date_added DateTime
+  tags Json
+  platform String
+  quotes CryptocurrencyQuote [not null]
+}
+
+Table CryptocurrencyQuote {
+  id Int [pk, increment]
+  cryptocurrencyId Int [not null]
+  currency String [not null]
+  price Float
+  volume_24h Float
+  volume_change_24h Float
+  percent_change_1h Float
+  percent_change_24h Float
+  percent_change_7d Float
+  market_cap Float
+  market_cap_dominance Float
+  fully_diluted_market_cap Float
+  last_updated DateTime
+  cryptocurrency Cryptocurrency [not null]
+}
+
+Enum TransactionStatus {
+  pending
+  completed
+  failed
+}
+
+Enum TransactionType {
+  deposit
+  withdrawal
+  trade
+  transfer
+}
+
+Enum Currency {
+  USD
+  DASH
+  XMR
+  BCH
+  LTC
+  XRP
+  XLM
+  BTC
+  BNB
+  USDT
+  ETH
+  BUSD
+  SOL
+  DOT
+  LINK
+  CAKE
+  CRO
+  UNI
+  AAVE
+}
+
+Ref: ResetPasswordToken.userId > User.id
+
+Ref: Balance.userId > User.id [delete: Cascade]
+
+Ref: Transaction.userId > User.id
+
+Ref: CryptocurrencyQuote.cryptocurrencyId > Cryptocurrency.id
