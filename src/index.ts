@@ -3,17 +3,19 @@ import FastifyCookie from "@fastify/cookie";
 import FastifyCors from "@fastify/cors";
 import FastifyFormBody from "@fastify/formbody";
 import FastifyJwt from "@fastify/jwt";
-import Fastify, { FastifyBaseLogger } from "fastify";
+import Fastify, {FastifyBaseLogger} from "fastify";
 import fastifyCron from "fastify-cron";
 
-import { UsersModule } from "./module/users";
-import { PrismaClient } from "@prisma/client";
-import { BalanceModule } from "./module/balances";
-import { TransactionModule } from "./module/transactions";
-import { PricesModule } from "./module/prices";
-import { SendGridModule } from "./module/sendgrid";
+import {UsersModule} from "./module/users";
+import {PrismaClient} from "@prisma/client";
+import {BalanceModule} from "./module/balances";
+import {TransactionModule} from "./module/transactions";
+import {PricesModule} from "./module/prices";
+import {SendGridModule} from "./module/sendgrid";
 
 async function start() {
+  const port = process.env.PORT || 8000;
+
   const logger = pino();
   const fastify = Fastify({
     logger: logger as FastifyBaseLogger,
@@ -60,11 +62,11 @@ async function start() {
     ],
   });
 
-  const _sendGridModule = await SendGridModule.init({ fastify, prisma });
-  const _usersModule = await UsersModule.init({ fastify, prisma });
-  const _balanceModule = await BalanceModule.Init({ fastify, prisma });
-  const _transactionModule = await TransactionModule.init({ fastify, prisma });
-  const _pricesModule = await PricesModule.init({ fastify, prisma });
+  const _sendGridModule = await SendGridModule.init({fastify, prisma});
+  const _usersModule = await UsersModule.init({fastify, prisma});
+  const _balanceModule = await BalanceModule.Init({fastify, prisma});
+  const _transactionModule = await TransactionModule.init({fastify, prisma});
+  const _pricesModule = await PricesModule.init({fastify, prisma});
 
   fastify.setNotFoundHandler((_req, reply) => {
     return reply.send("Not Found");
@@ -74,10 +76,13 @@ async function start() {
     return reply.send("Hello World");
   });
 
-  fastify.listen({ port: 8000 }, (err) => {
-    if (err) throw err;
-    console.log("Server is running on port 8000");
-  });
-}
+  fastify.listen(process.env.PORT as string, '0.0.0.0', function (err, address) {
+    if (err) {
+      fastify.log.error(err);
+      process.exit(1);
+    }
+    fastify.log.info(`Server listening on ${address}`);
+  });}
+
 
 void start();
