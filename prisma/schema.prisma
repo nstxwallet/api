@@ -21,18 +21,19 @@ model User {
   createdAt           DateTime             @default(now()) @db.Timestamp(6)
   updatedAt           DateTime             @default(now()) @db.Timestamp(6)
   balances            Balance[]
-  resetPasswordTokens ResetPasswordToken[] @relation("UserResetTokens")
   transactions        Transaction[]
+  resetPasswordTokens ResetPasswordToken[] @relation("UserResetTokens")
 }
 
 model ResetPasswordToken {
   id        Int      @id @default(autoincrement())
   token     String   @unique
   expiresAt DateTime
-  userId    String
+  userId    String // Ensure the type matches User.id
+  user      User     @relation(fields: [userId], references: [id], name: "UserResetTokens")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user      User     @relation("UserResetTokens", fields: [userId], references: [id])
 }
 
 model Balance {
@@ -42,7 +43,8 @@ model Balance {
   currency  Currency @default(USD)
   createdAt DateTime @default(now()) @db.Timestamp(6)
   updatedAt DateTime @default(now()) @db.Timestamp(6)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -56,13 +58,14 @@ model Transaction {
   currency  Currency
   createdAt DateTime          @default(now()) @db.Timestamp(6)
   updatedAt DateTime          @default(now()) @db.Timestamp(6)
-  user      User              @relation(fields: [userId], references: [id])
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 model Price {
   id        String   @id @default(uuid())
-  currency  Currency
   value     Float    @map("price")
+  currency  Currency
   updatedAt DateTime @default(now()) @db.Timestamp(6)
 }
 
@@ -85,7 +88,7 @@ model Cryptocurrency {
 }
 
 model CryptocurrencyQuote {
-  id                       Int            @id @default(autoincrement())
+  id                       Int       @id @default(autoincrement())
   cryptocurrencyId         Int
   currency                 String
   price                    Float?
@@ -98,33 +101,9 @@ model CryptocurrencyQuote {
   market_cap_dominance     Float?
   fully_diluted_market_cap Float?
   last_updated             DateTime?
-  cryptocurrency           Cryptocurrency @relation("CryptocurrencyQuotes", fields: [cryptocurrencyId], references: [id])
+
+  cryptocurrency Cryptocurrency @relation("CryptocurrencyQuotes", fields: [cryptocurrencyId], references: [id])
 }
-
-model TickerPrice {
-  id        Int      @id @default(autoincrement())
-  symbol    String   @unique
-  price     Float
-  updatedAt DateTime @updatedAt
-}
-
-model Kline {
-  id             Int      @id @default(autoincrement())
-  symbol         String
-  volume         Float
-  closePrice     Float
-  closeTime      DateTime
-  highPrice      Float
-  isFinal        Boolean
-  lowPrice       Float
-  numberOfTrades Int
-  openPrice      Float
-  openTime       DateTime
-  quoteVolume    Float
-
-  @@index([symbol, openTime])
-}
-
 
 enum TransactionStatus {
   pending
