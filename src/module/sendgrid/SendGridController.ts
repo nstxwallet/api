@@ -5,9 +5,9 @@ import bcrypt from "bcrypt";
 
 export class SendGridController {
   constructor(
-      private readonly fastify: FastifyInstance,
-      private readonly service: SendGridService,
-      private readonly prisma: PrismaClient
+    private readonly fastify: FastifyInstance,
+    private readonly service: SendGridService,
+    private readonly prisma: PrismaClient
   ) {}
 
   init() {
@@ -23,13 +23,16 @@ export class SendGridController {
             orderBy: { createdAt: "desc" },
           });
 
-          if (recentRequest && recentRequest.createdAt > new Date(Date.now() - 60 * 1000)) {
+          const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+          if (recentRequest && recentRequest.createdAt > oneMinuteAgo) {
             return reply.status(429).send({
               message: "You can only request a password reset once per minute.",
             });
           }
 
-          await this.prisma.resetPasswordToken.deleteMany({ where: { userId: user.id } });
+          await this.prisma.resetPasswordToken.deleteMany({
+            where: { userId: user.id },
+          });
 
           const resetToken = Math.random().toString(36).substring(2, 15);
           const hashedToken = bcrypt.hashSync(resetToken, 10);
@@ -49,32 +52,52 @@ export class SendGridController {
           message: "If your email is registered, a password reset link has been sent.",
         });
       } catch (error) {
-        reply.status(500).send({ message: "Internal server error." });
+        reply.status(500).send({
+          message: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        });
       }
     });
 
     this.fastify.post("/reset-password/confirm", async (request, reply) => {
-      const { token, newPassword } = request.body as { token: string; newPassword: string };
+      const { token, newPassword } = request.body as {
+        token: string;
+        newPassword: string;
+      };
 
       try {
-        const tokenRecord = await this.prisma.resetPasswordToken.findFirst({
-          where: { token: bcrypt.hashSync(token, 10) },
-        });
+        const tokenRecords = await this.prisma.resetPasswordToken.findMany();
+        console.log({tokenRecords});
+        const tokenRecord = await this.prisma.resetPasswordToken.findFirst();
 
         if (!tokenRecord || tokenRecord.expiresAt < new Date()) {
           return reply.status(400).send({ message: "Invalid or expired token." });
         }
 
-        await this.prisma.user.update({
+        const isTokenValid = bcrypt.compareSync(token, tokenRecord.token);
+
+        if (!isTokenValid) {
+          return reply.status(400).send({ message: "Invalid token." });
+        }
+
+        const user = await this.prisma.user.findUnique({
           where: { id: tokenRecord.userId },
-          data: { password: bcrypt.hashSync(newPassword, 10) },
         });
 
-        await this.prisma.resetPasswordToken.delete({ where: { id: tokenRecord.id } });
+        if (user) {
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { password: bcrypt.hashSync(newPassword, 10) },
+          });
+          await this.prisma.resetPasswordToken.delete({
+            where: { id: tokenRecord.id },
+          });
+        }
 
         reply.send({ message: "Password reset successfully." });
       } catch (error) {
-        reply.status(500).send({ message: "Internal server error." });
+        reply.status(500).send({
+          message: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        });
       }
     });
   }

@@ -11,8 +11,8 @@ Table User {
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [default: `now()`, not null]
   balances Balance [not null]
-  resetPasswordTokens ResetPasswordToken [not null]
   transactions Transaction [not null]
+  resetPasswordTokens ResetPasswordToken [not null]
 }
 
 Table ResetPasswordToken {
@@ -20,9 +20,9 @@ Table ResetPasswordToken {
   token String [unique, not null]
   expiresAt DateTime [not null]
   userId String [not null]
+  user User [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
-  user User [not null]
 }
 
 Table Balance {
@@ -49,8 +49,8 @@ Table Transaction {
 
 Table Price {
   id String [pk]
-  currency Currency [not null]
   value Float [not null]
+  currency Currency [not null]
   updatedAt DateTime [default: `now()`, not null]
 }
 
@@ -87,28 +87,6 @@ Table CryptocurrencyQuote {
   fully_diluted_market_cap Float
   last_updated DateTime
   cryptocurrency Cryptocurrency [not null]
-}
-
-Table TickerPrice {
-  id Int [pk, increment]
-  symbol String [unique, not null]
-  price Float [not null]
-  updatedAt DateTime [not null]
-}
-
-Table Kline {
-  id Int [pk, increment]
-  symbol String [not null]
-  volume Float [not null]
-  closePrice Float [not null]
-  closeTime DateTime [not null]
-  highPrice Float [not null]
-  isFinal Boolean [not null]
-  lowPrice Float [not null]
-  numberOfTrades Int [not null]
-  openPrice Float [not null]
-  openTime DateTime [not null]
-  quoteVolume Float [not null]
 }
 
 Enum TransactionStatus {
