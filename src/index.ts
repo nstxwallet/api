@@ -3,7 +3,7 @@ import FastifyCookie from "@fastify/cookie";
 import FastifyCors from "@fastify/cors";
 import FastifyFormBody from "@fastify/formbody";
 import FastifyJwt from "@fastify/jwt";
-import Fastify, {FastifyBaseLogger} from "fastify";
+import Fastify from "fastify";
 
 import {BalanceModule, BinanceModule, SendGridModule, TransactionModule, UsersModule} from "./module"
 import {PrismaClient} from "@prisma/client";
@@ -59,17 +59,19 @@ async function start() {
     return reply.send("Hello World");
   });
 
-  fastify.listen({port: 8000}, (err) => {
-    if (err) throw err
-  });
+
+  fastify.listen(process.env.PORT as string, '0.0.0.0', function (err, address) {
+    if (err) {
+      fastify.log.error(err);
+      process.exit(1);
+    }
+    fastify.log.info(`Server listening on ${address}`);
+  })
 }
 
 start();
 
-// fastify.listen(process.env.PORT as string, '0.0.0.0', function (err, address) {
-//   if (err) {
-//     fastify.log.error(err);
-//     process.exit(1);
-//   }
-//   fastify.log.info(`Server listening on ${address}`);
-// });}
+//
+// fastify.listen({port: 8000}, (err) => {
+//   if (err) throw err
+//
