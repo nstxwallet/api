@@ -8,7 +8,7 @@ interface Init {
 }
 export class BalanceModule {
   public constructor(public readonly service: BalanceService) {}
-  public static async Init(props: Init) {
+  public static async init(props: Init) {
     const service = new BalanceService(props.prisma);
     const controller = new BalanceController(props.fastify, service);
     controller.init();
