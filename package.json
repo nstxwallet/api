@@ -17,6 +17,7 @@
     "axios": "^1.6.8",
     "bcrypt": "^5.1.1",
     "dotenv": "^16.4.5",
+    "env-cmd": "^10.1.0",
     "fastify": "^4.28.1",
     "netlify-cli": "^17.23.5",
     "pg": "^8.11.5",
@@ -37,7 +38,8 @@
   },
   "scripts": {
     "build": "prisma generate && prisma db push && tsc",
-    "start": "node dist/index.js",
+    "start:dev": "env-cmd -f .env.development node dist/index.js",
+    "start:prod": "env-cmd -f .env.production node dist/index.js",
     "dev": "node -r ts-node/register src/index.ts"
   }
 }
