@@ -8,11 +8,23 @@ Table User {
   password String [not null]
   firstName String
   lastName String
+  telegramVerified Boolean [not null, default: false]
+  telegramId String
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [default: `now()`, not null]
   balances Balance [not null]
   resetPasswordTokens ResetPasswordToken [not null]
   transactions Transaction [not null]
+  telegramVerificationTokens TelegramVerificationToken [not null]
+}
+
+Table TelegramVerificationToken {
+  id String [pk]
+  token String [unique, not null]
+  userId String [not null]
+  expiresAt DateTime [not null]
+  createdAt DateTime [default: `now()`, not null]
+  user User [not null]
 }
 
 Table ResetPasswordToken {
@@ -145,6 +157,8 @@ Enum Currency {
   UNI
   AAVE
 }
+
+Ref: TelegramVerificationToken.userId > User.id [delete: Cascade]
 
 Ref: ResetPasswordToken.userId > User.id
 

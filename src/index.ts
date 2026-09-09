@@ -1,78 +1,77 @@
-import pino from "pino";
-import FastifyCookie from "@fastify/cookie";
-import FastifyCors from "@fastify/cors";
-import FastifyFormBody from "@fastify/formbody";
-import FastifyJwt from "@fastify/jwt";
+import cors from "@fastify/cors";
+import jwt from "@fastify/jwt";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 
-import {BalanceModule, BinanceModule, SendGridModule, TransactionModule, UsersModule} from "./module"
-import {PrismaClient} from "@prisma/client";
+import { getEnv } from "./config/env.js";
+import { prisma } from "./config/prisma.js";
+import { createRedis } from "./config/redis.js";
+import { BalanceModule } from "./modules/balances/index.js";
+import { BinanceModule } from "./modules/binance/index.js";
+import { PasswordResetModule } from "./modules/password-reset/index.js";
+import { TransactionModule } from "./modules/transactions/index.js";
+import { registerAuthRoutes } from "./modules/auth/routes.js";
+import { registerTelegramRoutes, startTelegramPolling } from "./modules/telegram/routes.js";
+import { authenticate } from "./plugins/authenticate.js";
 
-async function start() {
+const RATE_LIMIT_MAX = 200;
+const RATE_LIMIT_WINDOW = "1 minute";
+/** How often ticker prices are refreshed from Binance. */
+const PRICE_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
-  const logger = pino({
-    level: 'info',
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        colorize: true,
-      },
-    },
-  });
-  const prisma = new PrismaClient();
+const env = getEnv();
+const app = Fastify({ logger: true });
 
-  const fastify = Fastify({
-    logger : true
-  })
+await app.register(cors, { origin: env.CORS_ORIGIN ?? true, credentials: true });
+await app.register(rateLimit, { max: RATE_LIMIT_MAX, timeWindow: RATE_LIMIT_WINDOW });
+await app.register(jwt, {
+  secret: env.JWT_SECRET,
+  sign: { expiresIn: env.JWT_EXPIRES_IN },
+});
 
-  const sendgrid = require("@sendgrid/mail")
+app.decorate("authenticate", authenticate);
 
-  await fastify.register(FastifyJwt, {
-    secret: process.env.JWT_SECRET as string,
-    cookie: {
-      cookieName: "token",
-      signed: false,
-    },
-    decode: {
-      complete: true,
-    },
-  });
-  await fastify.register(FastifyCookie, {});
-  await fastify.register(FastifyFormBody);
+const redis = createRedis(env);
 
-  await fastify.register(FastifyCors, {
-    origin: "http://localhost:3000",
-    credentials: true,
-  })
+app.get("/health", async () => ({ ok: true }));
 
-  const _usersModule = await UsersModule.init({fastify, prisma});
-  const _balanceModule = await BalanceModule.init({fastify, prisma});
-  const _transactionModule = await TransactionModule.init({fastify, prisma});
-  const _sendGridModule = await SendGridModule.init({fastify, prisma});
-  const _binanceController = await BinanceModule.init({fastify, prisma})
+await registerAuthRoutes(app);
+await registerTelegramRoutes(app, env, redis);
+await BalanceModule.init({ fastify: app, prisma });
+await TransactionModule.init({ fastify: app, prisma });
+const binance = await BinanceModule.init({ fastify: app, prisma });
 
-  fastify.setNotFoundHandler((_req, reply) => {
-    return reply.send("Not Found");
-  });
-
-  fastify.get("/", async (_req, reply) => {
-    return reply.send("Hello World");
-  });
-
-
-  fastify.listen(process.env.PORT as string, '0.0.0.0', function (err, address) {
-    if (err) {
-      fastify.log.error(err);
-      process.exit(1);
-    }
-    fastify.log.info(`Server listening on ${address}`);
-  })
+if (env.SENDGRID_API_KEY) {
+  await PasswordResetModule.init({ fastify: app, prisma });
+} else {
+  app.log.warn("SENDGRID_API_KEY is unset: password reset routes are disabled");
 }
 
+if (env.TELEGRAM_USE_POLLING) {
+  app.log.info("Telegram polling enabled");
+  startTelegramPolling(app, env, redis);
+}
 
-start();
+/* Refresh prices in the background; a failure must not take the server down. */
+const refreshPrices = (): void => {
+  binance.service
+    .updateTickerPrices()
+    .then((count) => app.log.info({ count }, "Ticker prices refreshed"))
+    .catch((error) => app.log.error({ error }, "Failed to refresh ticker prices"));
+};
+refreshPrices();
+setInterval(refreshPrices, PRICE_REFRESH_INTERVAL_MS);
 
-//
-// fastify.listen({port: 8000}, (err) => {
-//   if (err) throw err
-//
+const shutdown = async (): Promise<void> => {
+  await app.close();
+  await prisma.$disconnect();
+  redis.disconnect();
+  process.exit(0);
+};
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
+app.listen({ port: env.PORT, host: "0.0.0.0" }).catch((err) => {
+  app.log.error(err);
+  process.exit(1);
+});

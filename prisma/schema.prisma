@@ -2,11 +2,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-generator dbml {
-  provider  = "prisma-dbml-generator"
-  outputDir = "../db"
-}
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -15,9 +10,12 @@ datasource db {
 model User {
   id                  String               @id @default(uuid())
   email               String               @unique
-  password            String               @map("password_hash")
+  passwordHash        String               @map("password_hash")
   firstName           String?
   lastName            String?
+  /// Telegram verification is confirmed by the bot; the chat id is kept so we can message the user.
+  telegramVerified    Boolean              @default(false)
+  telegramChatId      String?
   createdAt           DateTime             @default(now()) @db.Timestamp(6)
   updatedAt           DateTime             @default(now()) @db.Timestamp(6)
   balances            Balance[]
@@ -44,6 +42,7 @@ model Balance {
   updatedAt DateTime @default(now()) @db.Timestamp(6)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, currency])
   @@index([userId])
 }
 
@@ -57,6 +56,8 @@ model Transaction {
   createdAt DateTime          @default(now()) @db.Timestamp(6)
   updatedAt DateTime          @default(now()) @db.Timestamp(6)
   user      User              @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
 
 model Price {
@@ -66,65 +67,12 @@ model Price {
   updatedAt DateTime @default(now()) @db.Timestamp(6)
 }
 
-model Cryptocurrency {
-  id                 Int                   @id @default(autoincrement())
-  name               String
-  symbol             String
-  slug               String
-  cmc_rank           Int?
-  num_market_pairs   Int?
-  circulating_supply Float?
-  total_supply       Float?
-  max_supply         Float?
-  infinite_supply    Boolean?
-  last_updated       DateTime?
-  date_added         DateTime?
-  tags               Json?
-  platform           String?
-  quotes             CryptocurrencyQuote[] @relation("CryptocurrencyQuotes")
-}
-
-model CryptocurrencyQuote {
-  id                       Int            @id @default(autoincrement())
-  cryptocurrencyId         Int
-  currency                 String
-  price                    Float?
-  volume_24h               Float?
-  volume_change_24h        Float?
-  percent_change_1h        Float?
-  percent_change_24h       Float?
-  percent_change_7d        Float?
-  market_cap               Float?
-  market_cap_dominance     Float?
-  fully_diluted_market_cap Float?
-  last_updated             DateTime?
-  cryptocurrency           Cryptocurrency @relation("CryptocurrencyQuotes", fields: [cryptocurrencyId], references: [id])
-}
-
 model TickerPrice {
   id        Int      @id @default(autoincrement())
   symbol    String   @unique
   price     Float
   updatedAt DateTime @updatedAt
 }
-
-model Kline {
-  id             Int      @id @default(autoincrement())
-  symbol         String
-  volume         Float
-  closePrice     Float
-  closeTime      DateTime
-  highPrice      Float
-  isFinal        Boolean
-  lowPrice       Float
-  numberOfTrades Int
-  openPrice      Float
-  openTime       DateTime
-  quoteVolume    Float
-
-  @@index([symbol, openTime])
-}
-
 
 enum TransactionStatus {
   pending
