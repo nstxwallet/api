@@ -9,11 +9,6 @@ const EnvSchema = z.object({
   JWT_SECRET: z.string().min(8),
   JWT_EXPIRES_IN: z.string().default("7d"),
 
-  REDIS_URL: z.string().optional(),
-  REDIS_HOST: z.string().optional(),
-  REDIS_PORT: z.coerce.number().optional(),
-  REDIS_PASSWORD: z.string().optional(),
-
   TELEGRAM_BOT_TOKEN: z.string().min(10),
   TELEGRAM_BOT_USERNAME: z.string().min(3),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),

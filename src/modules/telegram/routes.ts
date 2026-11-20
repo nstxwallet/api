@@ -1,22 +1,14 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
-import type { Redis } from "ioredis";
 import type { Env } from "../../config/env.js";
 import { prisma } from "../../config/prisma.js";
 
-const VERIFICATION_TTL_SEC = 5 * 60;
+const VERIFICATION_TTL_SEC = 5 * 60; 
+const CHAT_BINDING_TTL_SEC = 24 * 60 * 60;
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 
-function tgKeyToken(token: string) {
-  return `tg:token:${token}`;
-}
-function tgKeyCode(code: string) {
-  return `tg:code:${code}`;
-}
-function tgKeyUserChat(userId: string) {
-  return `tg:user:${userId}:chat`;
-}
-function tgKeyUserActiveToken(userId: string) {
-  return `tg:user:${userId}:activeToken`;
+function expiryFromNow(seconds: number) {
+  return new Date(Date.now() + seconds * 1000);
 }
 
 function randomCode6() {
@@ -36,29 +28,40 @@ async function telegramSendMessage(botToken: string, chatId: number | string, te
   }
 }
 
-async function handleStartMessage(env: Env, redis: Redis, chatId: number, text: string) {
+async function handleStartMessage(env: Env, chatId: number, text: string) {
   if (!text.startsWith("/start")) return;
 
   const token = text.split(" ")[1]?.trim();
   if (!token) {
-    await telegramSendMessage(env.TELEGRAM_BOT_TOKEN, chatId, "Открой QR из приложения и нажми Start ещё раз.");
+    await telegramSendMessage(env.TELEGRAM_BOT_TOKEN, chatId, "Open the QR code in the app and press Start again.");
     return;
   }
 
-  const userId = await redis.get(tgKeyToken(token));
-  if (!userId) {
-    await telegramSendMessage(env.TELEGRAM_BOT_TOKEN, chatId, "Токен устарел. Вернись в браузер и обнови QR.");
+  const record = await prisma.telegramVerificationToken.findUnique({ where: { token } });
+  if (!record || record.expiresAt <= new Date()) {
+    await telegramSendMessage(env.TELEGRAM_BOT_TOKEN, chatId, "The token has expired. Go back to the browser and refresh the QR code.");
     return;
   }
 
   const code = randomCode6();
-  await redis.set(tgKeyCode(code), userId, "EX", VERIFICATION_TTL_SEC);
-  await redis.set(tgKeyUserChat(userId), String(chatId), "EX", 24 * 60 * 60);
+  /* One pending code per user: the newest /start supersedes any earlier one. */
+  await prisma.$transaction([
+    prisma.telegramVerificationCode.deleteMany({ where: { userId: record.userId } }),
+    prisma.telegramVerificationCode.create({
+      data: {
+        code,
+        userId: record.userId,
+        chatId: String(chatId),
+        expiresAt: expiryFromNow(VERIFICATION_TTL_SEC),
+      },
+    }),
+    prisma.telegramVerificationToken.delete({ where: { id: record.id } }),
+  ]);
 
   await telegramSendMessage(
     env.TELEGRAM_BOT_TOKEN,
     chatId,
-    `Код подтверждения: ${code}\n\nВведи его в браузер в течение 5 минут.`,
+    `Confirmation code: ${code}\n\nEnter it in the browser within 5 minutes.`,
   );
 }
 
@@ -85,7 +88,32 @@ async function telegramDeleteWebhook(botToken: string) {
   }
 }
 
-export function startTelegramPolling(app: FastifyInstance, env: Env, redis: Redis) {
+/** Postgres expires nothing on its own, so sweep stale rows on an interval. */
+export function startTelegramCleanup(app: FastifyInstance) {
+  const sweep = async () => {
+    const now = new Date();
+    try {
+      const [tokens, codes] = await prisma.$transaction([
+        prisma.telegramVerificationToken.deleteMany({ where: { expiresAt: { lte: now } } }),
+        prisma.telegramVerificationCode.deleteMany({ where: { expiresAt: { lte: now } } }),
+      ]);
+      if (tokens.count || codes.count) {
+        app.log.info({ tokens: tokens.count, codes: codes.count }, "Expired Telegram records removed");
+      }
+    } catch (err) {
+      app.log.error({ err }, "telegram cleanup error");
+    }
+  };
+
+  const interval = setInterval(sweep, CLEANUP_INTERVAL_MS);
+  void sweep();
+
+  app.addHook("onClose", async () => {
+    clearInterval(interval);
+  });
+}
+
+export function startTelegramPolling(app: FastifyInstance, env: Env) {
   let running = true;
   let offset = 0;
   let inFlight = false;
@@ -93,8 +121,7 @@ export function startTelegramPolling(app: FastifyInstance, env: Env, redis: Redi
   const tick = async () => {
     if (!running || inFlight) return;
     inFlight = true;
-    try {
-      // Polling can't work while webhook is active.
+    try { 
       if (offset === 0) {
         await telegramDeleteWebhook(env.TELEGRAM_BOT_TOKEN);
       }
@@ -106,7 +133,7 @@ export function startTelegramPolling(app: FastifyInstance, env: Env, redis: Redi
           const text: string | undefined = msg?.text;
           const chatId: number | undefined = msg?.chat?.id;
           if (text && chatId) {
-            await handleStartMessage(env, redis, chatId, text);
+            await handleStartMessage(env, chatId, text);
           }
         }
       }
@@ -127,25 +154,23 @@ export function startTelegramPolling(app: FastifyInstance, env: Env, redis: Redi
   });
 }
 
-export async function registerTelegramRoutes(app: FastifyInstance, env: Env, redis: Redis) {
-  // Generates t.me deep link with start payload == verificationToken.
+export async function registerTelegramRoutes(app: FastifyInstance, env: Env) {
   app.post("/telegram/request-verification", { preHandler: [app.authenticate] }, async (req, reply) => {
     const userId = (req.user as { sub: string }).sub;
 
-    const prevToken = await redis.get(tgKeyUserActiveToken(userId));
     const token = nanoid(24);
-    await redis.set(tgKeyToken(token), userId, "EX", VERIFICATION_TTL_SEC);
-    await redis.set(tgKeyUserActiveToken(userId), token, "EX", VERIFICATION_TTL_SEC);
-    if (prevToken && prevToken !== token) {
-      await redis.del(tgKeyToken(prevToken));
-    }
+    await prisma.$transaction([
+      prisma.telegramVerificationToken.deleteMany({ where: { userId } }),
+      prisma.telegramVerificationToken.create({
+        data: { token, userId, expiresAt: expiryFromNow(VERIFICATION_TTL_SEC) },
+      }),
+    ]);
 
     const username = env.TELEGRAM_BOT_USERNAME.replace(/^@/, "");
     const qrLink = `https://t.me/${username}?start=${encodeURIComponent(token)}`;
     return reply.send({ verificationToken: token, qrLink });
   });
 
-  // Telegram webhook: receives /start <token>, sends 6-digit code to user.
   app.post(
     "/telegram/webhook",
     async (
@@ -166,12 +191,11 @@ export async function registerTelegramRoutes(app: FastifyInstance, env: Env, red
       const chatId: number | undefined = msg?.chat?.id;
       if (!text || !chatId) return reply.send({ ok: true });
 
-      await handleStartMessage(env, redis, chatId, text);
+      await handleStartMessage(env, chatId, text);
       return reply.send({ ok: true });
     },
   );
 
-  // Confirms code, marks user.telegramVerified=true
   app.post<{ Body: { code: string } }>(
     "/telegram/confirm-code",
     { preHandler: [app.authenticate] },
@@ -180,20 +204,23 @@ export async function registerTelegramRoutes(app: FastifyInstance, env: Env, red
       const code = String(req.body.code ?? "").trim();
       if (!/^\d{6}$/.test(code)) return reply.code(400).send({ message: "Invalid code" });
 
-      const codeUserId = await redis.get(tgKeyCode(code));
-      if (!codeUserId) return reply.code(400).send({ message: "Code expired or not found" });
-      if (codeUserId !== userId) return reply.code(403).send({ message: "Code does not match this user" });
+      const record = await prisma.telegramVerificationCode.findUnique({ where: { code } });
+      if (!record || record.expiresAt <= new Date()) {
+        return reply.code(400).send({ message: "Code expired or not found" });
+      }
+      if (record.userId !== userId) {
+        return reply.code(403).send({ message: "Code does not match this user" });
+      }
 
-      const chatId = await redis.get(tgKeyUserChat(userId));
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: userId },
+          data: { telegramVerified: true, telegramChatId: record.chatId },
+        }),
+        prisma.telegramVerificationCode.delete({ where: { id: record.id } }),
+      ]);
 
-      await prisma.user.update({
-        where: { id: userId },
-        data: { telegramVerified: true, telegramChatId: chatId ?? undefined },
-      });
-
-      await redis.del(tgKeyCode(code));
       return reply.send({ ok: true });
     },
   );
 }
-

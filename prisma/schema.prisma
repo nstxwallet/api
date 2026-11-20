@@ -21,6 +21,8 @@ model User {
   balances            Balance[]
   resetPasswordTokens ResetPasswordToken[] @relation("UserResetTokens")
   transactions        Transaction[]
+  telegramTokens      TelegramVerificationToken[] @relation("UserTelegramTokens")
+  telegramCodes       TelegramVerificationCode[]  @relation("UserTelegramCodes")
 }
 
 model ResetPasswordToken {
@@ -107,4 +109,34 @@ enum Currency {
   CRO
   UNI
   AAVE
+}
+
+/// Short-lived deep-link token issued to bind a Telegram chat to a user.
+/// Postgres has no TTL, so `expiresAt` is checked on read and swept periodically.
+model TelegramVerificationToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime @db.Timestamp(6)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  user      User     @relation("UserTelegramTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+/// Six-digit code sent to the user in Telegram, confirmed back in the browser.
+/// `chatId` is carried here so confirmation can persist it onto the user.
+model TelegramVerificationCode {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  userId    String
+  chatId    String
+  expiresAt DateTime @db.Timestamp(6)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  user      User     @relation("UserTelegramCodes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
