@@ -14,7 +14,7 @@ async function main() {
     update: {},
     create: {
       email: "demo@nstx.com",
-      password: passwordHash,
+      passwordHash,
       firstName: "Demo",
       lastName: "User",
     },
@@ -25,7 +25,7 @@ async function main() {
     update: {},
     create: {
       email: "alice@example.com",
-      password: passwordHash,
+      passwordHash,
       firstName: "Alice",
       lastName: "Smith",
     },
@@ -36,7 +36,7 @@ async function main() {
     update: {},
     create: {
       email: "bob@example.com",
-      password: passwordHash,
+      passwordHash,
       firstName: "Bob",
       lastName: "Jones",
     },
@@ -74,7 +74,7 @@ async function main() {
     });
   }
 
-  // Price (курсы валют к USD-эквиваленту)
+  // Price (currency rates against the USD equivalent)
   const priceData: { currency: Currency; value: number }[] = [
     { currency: Currency.USD, value: 1 },
     { currency: Currency.BTC, value: 43_000 },
@@ -95,7 +95,7 @@ async function main() {
     }
   }
 
-  // TickerPrice (для отображения тикеров)
+  // TickerPrice (used to render tickers)
   const tickers = [
     { symbol: "BTCUSDT", price: 43_000 },
     { symbol: "ETHUSDT", price: 2_300 },
@@ -110,70 +110,7 @@ async function main() {
     });
   }
 
-  // Cryptocurrency + Quote
-  let btc = await prisma.cryptocurrency.findFirst({ where: { symbol: "BTC" } });
-  if (!btc) {
-    btc = await prisma.cryptocurrency.create({
-      data: {
-        name: "Bitcoin",
-        symbol: "BTC",
-        slug: "bitcoin",
-        cmc_rank: 1,
-        circulating_supply: 19_500_000,
-        total_supply: 21_000_000,
-        max_supply: 21_000_000,
-        infinite_supply: false,
-      },
-    });
-  }
-  const btcQuote = await prisma.cryptocurrencyQuote.findFirst({
-    where: { cryptocurrencyId: btc.id, currency: "USD" },
-  });
-  if (!btcQuote) {
-    await prisma.cryptocurrencyQuote.create({
-      data: {
-        cryptocurrencyId: btc.id,
-        currency: "USD",
-        price: 43_000,
-        volume_24h: 25_000_000_000,
-        percent_change_24h: 2.5,
-        market_cap: 840_000_000_000,
-        last_updated: new Date(),
-      },
-    });
-  }
-
-  let eth = await prisma.cryptocurrency.findFirst({ where: { symbol: "ETH" } });
-  if (!eth) {
-    eth = await prisma.cryptocurrency.create({
-      data: {
-        name: "Ethereum",
-        symbol: "ETH",
-        slug: "ethereum",
-        cmc_rank: 2,
-        circulating_supply: 120_000_000,
-        infinite_supply: true,
-      },
-    });
-  }
-  const ethQuote = await prisma.cryptocurrencyQuote.findFirst({
-    where: { cryptocurrencyId: eth.id, currency: "USD" },
-  });
-  if (!ethQuote) {
-    await prisma.cryptocurrencyQuote.create({
-      data: {
-        cryptocurrencyId: eth.id,
-        currency: "USD",
-        price: 2_300,
-        volume_24h: 12_000_000_000,
-        percent_change_24h: -0.8,
-        market_cap: 276_000_000_000,
-        last_updated: new Date(),
-      },
-    });
-  }
-
-  console.log("Seed completed: users, balances, transactions, prices, tickers, crypto.");
+  console.log("Seed completed: users, balances, transactions, prices, tickers.");
 }
 
 main()
