@@ -5,13 +5,12 @@ import Fastify from "fastify";
 
 import { getEnv } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
-import { createRedis } from "./config/redis.js";
 import { BalanceModule } from "./modules/balances/index.js";
 import { BinanceModule } from "./modules/binance/index.js";
 import { PasswordResetModule } from "./modules/password-reset/index.js";
 import { TransactionModule } from "./modules/transactions/index.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
-import { registerTelegramRoutes, startTelegramPolling } from "./modules/telegram/routes.js";
+import { registerTelegramRoutes, startTelegramCleanup, startTelegramPolling } from "./modules/telegram/routes.js";
 import { authenticate } from "./plugins/authenticate.js";
 
 const RATE_LIMIT_MAX = 200;
@@ -31,12 +30,10 @@ await app.register(jwt, {
 
 app.decorate("authenticate", authenticate);
 
-const redis = createRedis(env);
-
 app.get("/health", async () => ({ ok: true }));
 
 await registerAuthRoutes(app);
-await registerTelegramRoutes(app, env, redis);
+await registerTelegramRoutes(app, env);
 await BalanceModule.init({ fastify: app, prisma });
 await TransactionModule.init({ fastify: app, prisma });
 const binance = await BinanceModule.init({ fastify: app, prisma });
@@ -47,9 +44,11 @@ if (env.SENDGRID_API_KEY) {
   app.log.warn("SENDGRID_API_KEY is unset: password reset routes are disabled");
 }
 
+startTelegramCleanup(app);
+
 if (env.TELEGRAM_USE_POLLING) {
   app.log.info("Telegram polling enabled");
-  startTelegramPolling(app, env, redis);
+  startTelegramPolling(app, env);
 }
 
 /* Refresh prices in the background; a failure must not take the server down. */
@@ -65,7 +64,6 @@ setInterval(refreshPrices, PRICE_REFRESH_INTERVAL_MS);
 const shutdown = async (): Promise<void> => {
   await app.close();
   await prisma.$disconnect();
-  redis.disconnect();
   process.exit(0);
 };
 process.on("SIGTERM", shutdown);
